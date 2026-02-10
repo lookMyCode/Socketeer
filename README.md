@@ -60,6 +60,8 @@ const ChatRoute: Route = {
   
   // Walidacja wiadomości przychodzących
   requestMessagePipes: [
+    new BufferToStringPipe(),
+    new JsonParsePipe(),
     new ZodValidationPipe(z.object({ text: z.string().min(1) }))
   ],
 
