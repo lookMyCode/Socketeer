@@ -1,14 +1,15 @@
-import { SocketContext } from '../SocketContext';
+import { SOCKETEER_STATUSES } from "../constants";
+import { AccessDeniedException, RateLimitException } from "../exception";
+import { ErrorFilter } from "../filter";
+import { CanActivateConnect } from "../guard";
+import { Notifier, NotifierCallback } from "../notifier";
+import { Params } from "../Params";
+import { PipeTransform } from "../pipe";
+import { QueryParams } from "../QueryParams";
+import { RateLimiter } from "../RateLimiter";
+import { SocketContext } from "../SocketContext";
 import { ControllerConfig } from "./ControllerConfig";
-import { PipeTransform } from '../pipe/PipeTransform';
-import { Params } from '../Params';
-import { QueryParams } from '../QueryParams';
-import { ErrorFilter } from '../filter/ErrorFilter';
-import { CanActivateConnect } from '../guard/CanActivateConnect';
-import { SOCKETEER_STATUSES } from '../constants/SOCKETEER_STATUSES';
-import { Notifier, NotifierCallback } from '../Notifier';
-import { RateLimiter } from '../RateLimiter';
-import { RateLimitException } from '../exception/RateLimitException';
+
 
 export abstract class Controller<T = any> {
   private __onSocketDestroyCb = () => { };
@@ -34,8 +35,8 @@ export abstract class Controller<T = any> {
       onSocketDestroyCb,
       pathNotifier,
       currentPath,
+      rateLimit,
     } = config;
-    const _this: any = this;
 
     this.__connectGuards = connectGuards || [];
     this.__requestMessagePipes = requestMessagePipes || [];
@@ -48,13 +49,13 @@ export abstract class Controller<T = any> {
     if (errorFilter) this.__errorFilter = errorFilter;
     if (onSocketDestroyCb) this.__onSocketDestroyCb = onSocketDestroyCb;
 
-    if (config.rateLimit) {
-      this.__rateLimiter = new RateLimiter(config.rateLimit);
+    if (rateLimit) {
+      this.__rateLimiter = new RateLimiter(rateLimit);
     }
 
-    if (_this.$onSocketInit) {
+    if (this.$onSocketInit) {
       try {
-        _this.$onSocketInit();
+        this.$onSocketInit();
       } catch (err) {
         this.__errorFilter.handleError(err);
       }
@@ -86,6 +87,7 @@ export abstract class Controller<T = any> {
   async __addSocket(context: SocketContext<T>) {
     try {
       this.__contexts.push(context);
+
       await this.__addEventsListeners(context);
       await this.__onSocketConnect(context);
     } catch (err: unknown) {
@@ -101,7 +103,7 @@ export abstract class Controller<T = any> {
       for (let i = 0, l = pipes.length; i < l; i++) {
         const pipe = pipes[i];
         try {
-          message = await pipe.transform(message, context); // Pipes might need context too
+          message = await pipe.transform(message, context);
         } catch (err) {
           this.__errorFilter.handleError(err, context.socket);
           return;
@@ -117,14 +119,6 @@ export abstract class Controller<T = any> {
   protected async $sendBroadcastMessage(msg: any) {
     try {
       this.__contexts.forEach(async (ctx) => {
-        // Transform per context? Or once? 
-        // Pipes transform might depend on context (e.g. user language).
-        // Safer to run per context, but slower. 
-        // Let's run once for now as per original implementation, but existing implementation didn't have context in transform.
-        // Pass undefined as context for broadcast transform? Or first context?
-        // Original code: await pipe.transform(message);
-        // I'll keep it simple for now, but pipes signature changed? No, I haven't changed Pipe interface yet.
-        // I should change Pipe interface to accept context.
         this.$send(ctx, msg);
       });
     } catch (err) {
@@ -134,6 +128,7 @@ export abstract class Controller<T = any> {
 
   private async __addEventsListeners(context: SocketContext<T>) {
     const ws = context.socket;
+
     ws.on('error', (err: Error) => {
       try {
         this.__onSocketError.call(this, err, context);
@@ -161,17 +156,12 @@ export abstract class Controller<T = any> {
 
   private async __onSocketConnect(context: SocketContext<T>) {
     try {
-      const _this = this as any;
       const guards = this.__connectGuards || [];
-
-      // Check Rate Limit (Max Connections) - Moved to WSServer?
-      // WSServer handles Max Connections (rejects new connection).
-      // Here we handle requests rate limit. Or maybe connection limit per controller?
-      // Plan said: WSServer checks Max Connections.
 
       // Guards check
       try {
         let accessDenied = false;
+
         for (let i = 0, l = guards.length; i < l; i++) {
           const guard = guards[i];
           const canActivate = await guard.canActivate(context);
@@ -181,15 +171,13 @@ export abstract class Controller<T = any> {
           }
         }
         if (accessDenied) {
-          context.socket.close(SOCKETEER_STATUSES.ACCESS_DENIED.code, SOCKETEER_STATUSES.ACCESS_DENIED.status);
-          return;
+          throw new AccessDeniedException();
         }
       } catch (err: unknown) {
-        // ... error handling
         throw err;
       }
 
-      if (_this.$onSocketConnect) _this.$onSocketConnect(context);
+      if (this.$onSocketConnect) this.$onSocketConnect(context);
     } catch (err: unknown) {
       this.__errorFilter.handleError(err, context.socket);
     }
@@ -197,7 +185,7 @@ export abstract class Controller<T = any> {
 
   private __onSocketError(err: Error, context: SocketContext<T>) {
     try {
-      if ((this as any).$onSocketError) (this as any).$onSocketError(err, context);
+      if (this.$onSocketError) this.$onSocketError(err, context);
     } catch (e) {
       this.__errorFilter.handleError(e);
     }
@@ -205,7 +193,7 @@ export abstract class Controller<T = any> {
 
   private async __onSocketClose(code: number, reason: string | Buffer, context: SocketContext<T>) {
     try {
-      if ((this as any).$onSocketClose) await (this as any).$onSocketClose(code, reason, context);
+      if (this.$onSocketClose) await this.$onSocketClose(code, reason, context);
       this.__contexts = this.__contexts.filter(c => c !== context);
       if (!this.__contexts.length) this.__onSocketDestroy();
     } catch (err) {
@@ -214,7 +202,6 @@ export abstract class Controller<T = any> {
   }
 
   private async __onSocketMessage(message: any, context: SocketContext<T>) {
-    // Rate Limit Check
     if (this.__rateLimiter) {
       if (!this.__rateLimiter.check(context)) {
         throw new RateLimitException();
@@ -226,32 +213,32 @@ export abstract class Controller<T = any> {
 
     for (let i = 0, l = pipes.length; i < l; i++) {
       const pipe = pipes[i];
+
       try {
-        msg = await pipe.transform(msg, context); // Pass context to pipes
+        msg = await pipe.transform(msg, context);
       } catch (err) {
-        // Pipe error -> ErrorFilter w/ context
         this.__errorFilter.handleError(err, context.socket);
         return;
       }
     }
 
     try {
-      if ((this as any).$onSocketMessage) (this as any).$onSocketMessage(msg, context);
+      if (this.$onSocketMessage) this.$onSocketMessage(msg, context);
     } catch (err) {
       this.__errorFilter.handleError(err, context.socket);
     }
   }
 
   private __onSocketDestroy() {
-    const t = this as any;
-    if (t.$onSocketDestroy) t.$onSocketDestroy();
+    if (this.$onSocketDestroy) this.$onSocketDestroy();
+
     try {
       this.__pathNotifier.clear(this.__currentPath);
     } catch (_) { }
+
     this.__onSocketDestroyCb();
   }
 
-  // Abstract methods definitions for Type Safety
   protected $onSocketInit?(): void;
   protected $onSocketConnect?(context: SocketContext<T>): void;
   protected $onSocketClose?(code: number, reason: string | Buffer, context: SocketContext<T>): void;

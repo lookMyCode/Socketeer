@@ -3,9 +3,10 @@ import { Params } from '../Params';
 import { QueryParams } from '../QueryParams';
 import { ErrorFilter } from '../filter/ErrorFilter';
 import { CanActivateConnect } from '../guard/CanActivateConnect';
-import { Notifier } from '../Notifier';
+import { Notifier } from '../notifier/Notifier';
 import { IncomingMessage } from 'http';
-import { RateLimitConfig } from '../SocketeerConfig';
+import { RateLimitConfig } from '../RateLimitConfig';
+
 
 export interface ControllerConfig {
   connectGuards?: CanActivateConnect[];

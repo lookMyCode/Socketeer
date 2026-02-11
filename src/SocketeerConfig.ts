@@ -1,12 +1,9 @@
-import { ErrorFilter } from "./filter/ErrorFilter";
-import { CanActivateConnect } from "./guard/CanActivateConnect";
-import { Route } from "./route/Route";
+import { ErrorFilter } from "./filter";
+import { CanActivateConnect } from "./guard";
+import { RateLimitConfig } from "./RateLimitConfig";
+import { Route } from "./route";
 
-export interface RateLimitConfig {
-  maxRequests?: number;
-  window?: number;
-  maxConnections?: number;
-}
+
 
 export interface SocketeerConfig {
   port: number;
