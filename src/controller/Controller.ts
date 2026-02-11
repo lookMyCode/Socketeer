@@ -11,7 +11,7 @@ import { SocketContext } from "../SocketContext";
 import { ControllerConfig } from "./ControllerConfig";
 
 
-export abstract class Controller<T = any> {
+export abstract class Controller<T = unknown> {
   private __onSocketDestroyCb = () => { };
   private __contexts: SocketContext<T>[] = [];
   private __connectGuards: CanActivateConnect[];
@@ -116,7 +116,7 @@ export abstract class Controller<T = any> {
     }
   }
 
-  protected async $sendBroadcastMessage(msg: any) {
+  protected async $sendBroadcastMessage(msg: unknown) {
     try {
       this.__contexts.forEach(async (ctx) => {
         this.$send(ctx, msg);
@@ -223,7 +223,7 @@ export abstract class Controller<T = any> {
     }
 
     try {
-      if (this.$onSocketMessage) this.$onSocketMessage(msg, context);
+      if (this.$onSocketMessage) await this.$onSocketMessage(msg, context);
     } catch (err) {
       this.__errorFilter.handleError(err, context.socket);
     }
@@ -239,10 +239,10 @@ export abstract class Controller<T = any> {
     this.__onSocketDestroyCb();
   }
 
-  protected $onSocketInit?(): void;
-  protected $onSocketConnect?(context: SocketContext<T>): void;
-  protected $onSocketClose?(code: number, reason: string | Buffer, context: SocketContext<T>): void;
-  protected $onSocketError?(err: Error, context: SocketContext<T>): void;
-  protected $onSocketDestroy?(): void;
-  protected $onSocketMessage?(message: any, context: SocketContext<T>): void;
+  $onSocketInit?(): void | Promise<void>;
+  $onSocketConnect?(context: SocketContext<T>): void | Promise<void>;
+  $onSocketClose?(code: number, reason: string | Buffer, context: SocketContext<T>): void | Promise<void>;
+  $onSocketError?(err: Error, context: SocketContext<T>): void | Promise<void>;
+  $onSocketDestroy?(): void | Promise<void>;
+  $onSocketMessage?(message: any, context: SocketContext<T>): void | Promise<void>;
 }
