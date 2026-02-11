@@ -1,7 +1,7 @@
 import * as WebSocket from 'ws';
 import { IncomingMessage } from 'http';
 
-export class SocketContext<T = any> {
+export class SocketContext<T = unknown> {
   readonly socket: WebSocket;
   readonly request: IncomingMessage;
   payload!: T;

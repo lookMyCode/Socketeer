@@ -1,6 +1,6 @@
-import WebSocket from 'ws';
+import { SocketContext } from '../SocketContext';
 
 
 export interface OnSocketError {
-  $onSocketError: (err: Error, ws: WebSocket) => void | Promise<void>;
+  $onSocketError: (err: Error, context: SocketContext<any>) => void | Promise<void>;
 }

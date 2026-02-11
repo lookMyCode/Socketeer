@@ -1,6 +1,6 @@
-import WebSocket from 'ws';
+import { SocketContext } from '../SocketContext';
 
 
-export interface OnSocketMessageAccessDenied<T> {
-  $onSocketMessageAccessDenied: (message: T, ws: WebSocket) => void | Promise<void>;
+export interface OnSocketMessageAccessDenied<T=unknown> {
+  $onSocketMessageAccessDenied: (message: T, context: SocketContext<any>) => void | Promise<void>;
 }
