@@ -7,7 +7,13 @@ export class AuthGuard implements CanActivateConnect {
 
   canActivate(context: SocketContext) {
     const token = this.getToken(context.request);
-    return token === 'abc';
+    if (token !== 'abc') return false;
+
+    context.payload = {
+      userId: 42,
+    }
+    
+    return true;
   }
 
   private getToken(req: IncomingMessage) {

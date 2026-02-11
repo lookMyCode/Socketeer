@@ -33,6 +33,8 @@ export class ChatsController extends Controller implements OnSocketConnect, OnSo
   ];
 
   async $onSocketConnect(context: SocketContext<any>) {
+    console.log('$onSocketConnect')
+    console.log(context.payload)
     await this.$send(context, {
       event: 'connect',
       payload: {
@@ -41,7 +43,9 @@ export class ChatsController extends Controller implements OnSocketConnect, OnSo
     });
   }
 
-  async $onSocketMessage(message: SocketMessage) {
+  async $onSocketMessage(message: SocketMessage, context: SocketContext<any>) {
+    console.log('$onSocketMessage')
+    console.log(context.payload)
     const { event, payload } = message;
     
     switch (event) {
