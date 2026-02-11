@@ -1,16 +1,19 @@
 import * as WebSocket from 'ws';
 import { IncomingMessage } from 'http';
 
-import { SocketeerConfig, RateLimitConfig } from './SocketeerConfig';
-import { CanActivateConnect } from './guard/CanActivateConnect';
+import { ServiceUnavailableException, AccessDeniedException, SocketeerException, InternalServerErrorException, NotFoundException } from './exception';
+import { ErrorFilter } from './filter';
+import { CanActivateConnect } from './guard';
+import { Notifier } from './notifier';
 import { OpenedController } from './OpenedController';
-import { Route } from './route/Route';
 import { Params } from './Params';
 import { QueryParams } from './QueryParams';
-import { ErrorFilter } from './filter/ErrorFilter';
-import { SOCKETEER_STATUSES } from './constants/SOCKETEER_STATUSES';
-import { Notifier } from './Notifier';
+import { RateLimitConfig } from './RateLimitConfig';
+import { Route } from './route';
 import { SocketContext } from './SocketContext';
+import { SocketeerConfig } from './SocketeerConfig';
+
+
 
 
 export class Socketeer {
@@ -19,10 +22,18 @@ export class Socketeer {
   private openedControllers: { [path: string]: OpenedController } = {};
   private errorFilter = new ErrorFilter();
   private pathNotifier = new Notifier<unknown>();
-  private rateLimitConfig: RateLimitConfig | undefined;
+  private rateLimitConfig?: RateLimitConfig;
 
   constructor(config: SocketeerConfig) {
-    let { port, routes, connectGuards, onInit, onConnect, prefixPath, errorFilter } = config;
+    let { 
+      port, 
+      routes, 
+      connectGuards, 
+      onInit, 
+      onConnect, 
+      prefixPath, 
+      errorFilter 
+    } = config;
 
     if (errorFilter) {
       this.errorFilter = errorFilter;
@@ -38,15 +49,12 @@ export class Socketeer {
     this.rateLimitConfig = config.rateLimit;
 
     this.webSocketServer.on('connection', async (ws: WebSocket, request: IncomingMessage) => {
-      // 0. Check Max Connections
       if (this.rateLimitConfig?.maxConnections) {
         if (this.webSocketServer.clients.size > this.rateLimitConfig.maxConnections) {
-          ws.close(SOCKETEER_STATUSES.SERVICE_UNAVAILABLE.code, SOCKETEER_STATUSES.SERVICE_UNAVAILABLE.status);
-          return;
+          throw new ServiceUnavailableException();
         }
       }
 
-      // 1. Create Context
       const context = new SocketContext(ws, request);
 
       try {
@@ -55,7 +63,6 @@ export class Socketeer {
 
           for (let i = 0, l = this.connectGuards.length; i < l; i++) {
             const guard = this.connectGuards[i];
-            // 2. Pass context to guards
             const canActivate = await guard.canActivate(context);
 
             if (!canActivate) {
@@ -65,17 +72,18 @@ export class Socketeer {
           }
 
           if (accessDenied) {
-            ws.close(SOCKETEER_STATUSES.ACCESS_DENIED.code, SOCKETEER_STATUSES.ACCESS_DENIED.status);
-            return;
+            throw new AccessDeniedException();
           }
         } catch (err: unknown) {
-          if (err instanceof Error) {
-            ws.close(SOCKETEER_STATUSES.ACCESS_DENIED.code, err.message);
+          if (err instanceof SocketeerException) {
+            throw err;
+          } else if (err instanceof Error) {
+            console.error(err);
+            throw new InternalServerErrorException();
           } else {
-            ws.close(SOCKETEER_STATUSES.ACCESS_DENIED.code, SOCKETEER_STATUSES.ACCESS_DENIED.status);
+            console.error(err);
+            throw new AccessDeniedException();
           }
-
-          return;
         }
 
         const queryParams: QueryParams = {};
@@ -87,9 +95,7 @@ export class Socketeer {
           queryParams[key] = searchParams.get(key);
         });
 
-        let currentPath = (request.url || '')
-          .split('?')[0]
-          .trim();
+        let currentPath = url.pathname;
 
         if (!currentPath.startsWith('/')) {
           currentPath = '/' + currentPath;
@@ -104,23 +110,24 @@ export class Socketeer {
           currentPath = currentPath.substring(0, currentPath.length - 1);
         }
 
-        if (this.openedControllers[currentPath]) {
-          const controller = this.openedControllers[currentPath].controller;
-          // 3. Pass context to controller
+        const openedController = this.openedControllers[currentPath];
+
+        if (openedController) {
+          const controller = openedController.controller;
           await controller.__addSocket(context);
         } else {
           const currentPathParts = currentPath
-            .split('?')[0]
             .split('/')
             .map(x => x.trim())
             .filter(x => !!x);
+
           const currentPathPartsLength = currentPathParts.length;
           let params: Params = {};
           let currentRoute: Route | undefined;
 
-          for (let i = 0, l = (routes || []).length; i < l; i++) {
+          for (let route of (routes || [])) {
             params = {};
-            const route = routes[i];
+
             const pathParts = route.path
               .trim()
               .split('/')
@@ -132,9 +139,9 @@ export class Socketeer {
 
             let found = true;
 
-            for (let j = 0; j < pathPartsLength; j++) {
-              const pathPart = pathParts[j];
-              const currentPathPart = currentPathParts[j];
+            for (let i = 0; i < pathPartsLength; i++) {
+              const pathPart = pathParts[i];
+              const currentPathPart = currentPathParts[i];
               const isParam = pathPart.startsWith(':');
 
               if (!isParam && pathPart !== currentPathPart) {
@@ -154,10 +161,7 @@ export class Socketeer {
             }
           }
 
-          if (!currentRoute) {
-            ws.close(SOCKETEER_STATUSES.NOT_FOUND.code, SOCKETEER_STATUSES.NOT_FOUND.status);
-            return;
-          }
+          if (!currentRoute) throw new NotFoundException();
 
           const { path, controller: C } = currentRoute;
           const controller = new C({
@@ -182,7 +186,6 @@ export class Socketeer {
           }
 
           this.openedControllers[currentPath] = openedController;
-          // 3. Pass context to controller
           await controller.__addSocket(context);
         }
 
@@ -190,11 +193,7 @@ export class Socketeer {
           try {
             await onConnect();
           } catch (err: unknown) {
-            if (err instanceof Error) {
-              ws.close(SOCKETEER_STATUSES.INTERNAL_SERVER_ERROR.code, SOCKETEER_STATUSES.INTERNAL_SERVER_ERROR.status);
-            } else {
-              ws.close(SOCKETEER_STATUSES.INTERNAL_SERVER_ERROR.code, SOCKETEER_STATUSES.INTERNAL_SERVER_ERROR.status);
-            }
+            throw new InternalServerErrorException();
           }
         }
       } catch (err: unknown) {

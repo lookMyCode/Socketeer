@@ -1,8 +1,5 @@
-export type NotifierCallback<T> = (data: T) => void;
-
-export interface NotifierSubscription {
-  unsubscribe: () => void;
-}
+import { NotifierCallback } from "./NotifierCallback";
+import { NotifierSubscription } from "./NotifierSubscription";
 
 
 export class Notifier<T> {
@@ -29,7 +26,7 @@ export class Notifier<T> {
   }
 
   clearAll() {
-    Object.keys(this.notifications).forEach(path => this.notifications[path] = []);
+    Object.keys(this.notifications).forEach(path => this.clear(path));
     this.notifications = {};
   }
 }
