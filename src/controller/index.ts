@@ -6,4 +6,3 @@ export * from './OnSocketDestroy';
 export * from './OnSocketError';
 export * from './OnSocketInit';
 export * from './OnSocketMessage';
-export * from './OnSocketMessageAccessDenied';
