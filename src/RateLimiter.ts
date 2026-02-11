@@ -1,4 +1,4 @@
-import { RateLimitConfig } from './SocketeerConfig';
+import { RateLimitConfig } from './RateLimitConfig';
 
 export class RateLimiter {
   private history = new Map<any, { count: number, start: number }>();
