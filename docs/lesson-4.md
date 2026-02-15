@@ -94,4 +94,4 @@ export const routes: Route[] = [
 
 ---
 
-[← Previous Lesson: Listing Dialogs](lesson-3.md) | [Course Index](../COURSE.md) | [Next Lesson: System Notifications →](lesson-4.md)
+[← Previous Lesson: Listing Dialogs](lesson-3.md) | [Course Index](../COURSE.md) | [Next Lesson: System Notifications →](lesson-5.md)
