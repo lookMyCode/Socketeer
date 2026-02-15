@@ -61,11 +61,11 @@ export class EndpointController extends Controller
 
   // Called for EVERY new connection
   async $onSocketConnect(context: SocketContext<any>) {
-    console.log('New connection:', context.id);
+    console.log('New connection established');
     
     // Broadcast to all connected clients in this controller
     this.$forEachContext((ctx) => {
-      console.log('Active client:', ctx.id);
+      // ctx.socket is the native WebSocket
     });
   }
 
@@ -177,6 +177,29 @@ The `Socketeer` class is the main entry point of the application. It initializes
 ### Helper Methods
 
 - **`notifyPath(path: string, data: T)`**: Sends an internal event to a specific path. This is useful for inter-controller communication without a direct reference to the controller instance.
+
+---
+
+## Rate Limit Configuration
+
+The `RateLimitConfig` object defines the rules for rate limiting connections and requests.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `maxConnections` | `number` | Maximum number of concurrent connections allowed to the server or specific route. |
+| `maxRequests` | `object` | Configuration for request rate limiting. |
+| `maxRequests.window` | `number` | The time window in **milliseconds** (e.g., 1000 for 1 second). |
+| `maxRequests.counter` | `number` | The maximum number of requests allowed within the window. |
+
+```typescript
+rateLimit: {
+  maxConnections: 100, // Max 100 concurrent users
+  maxRequests: {
+    window: 1000, // 1 second
+    counter: 5    // Max 5 messages per second
+  }
+}
+```
 
 ---
 
@@ -296,12 +319,12 @@ Socketeer comes with several built-in pipes:
 Implement the `PipeTransform` interface.
 
 ```typescript
-import { PipeTransform, SocketContext } from 'socketeer';
+import { PipeTransform, SocketContext, BadRequestException } from 'socketeer';
 
 export class ToUpperCasePipe implements PipeTransform {
   transform(value: any, context: SocketContext): string {
     if (typeof value !== 'string') {
-      throw new Error('Expected string!');
+      throw new BadRequestException('Expected string!');
     }
     return value.toUpperCase();
   }
@@ -344,6 +367,7 @@ export class MyErrorFilter extends ErrorFilter {
     super.handleError(err, ws);
   }
 }
+```
 
 ---
 
