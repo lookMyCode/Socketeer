@@ -121,7 +121,7 @@ export class ChatController extends Controller implements OnSocketInit, OnSocket
     // Broadcast to everyone in THIS room (controller instance)
     // The framework handles isolation automatically!
     this.$sendBroadcastMessage({
-      from: context.id,
+      from: 'Anonymous', // Simplified for the example
       content: message,
       room: this.roomId
     });

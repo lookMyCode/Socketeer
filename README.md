@@ -2,6 +2,8 @@
 
 > **Modern, structured WebSocket framework for Node.js**
 
+[![Interactive Course](https://img.shields.io/badge/🎓-Interactive_Course-blueviolet?style=for-the-badge)](COURSE.md)
+
 Socketeer is a TypeScript-first framework designed for building scalable and maintainable WebSocket applications. It enforces an **explicit architecture** without the magic of decorators, giving you full control over your application's flow.
 
 ## Philosophy
@@ -145,6 +147,8 @@ const server = new Socketeer({
 
 ## Documentation
 
+- [🚀 Get Started](#get-started)
+- [🎓 **Interactive Course (COURSE.md)**](COURSE.md)
 - [Server (Socketeer)](#server-socketeer)
 - [Routes](#routes)
 - [Controllers](#controllers)
@@ -397,11 +401,11 @@ Socketeer uses standard exception classes that map to specific close codes.
 
 | Exception | Close Code | Description |
 |-----------|------------|-------------|
-| `BadRequestException` | `4000` | Invalid data sent by client. |
-| `UnauthorizedException` | `4001` | Authentication required. |
-| `AccessDeniedException` | `4003` | Authentication passed, but permission denied. |
-| `NotFoundException` | `4004` | Route not found. |
-| `RateLimitException` | `4029` | Too many requests. |
+| `BadRequestException` | `4400` | Invalid data sent by client. |
+| `UnauthorizedException` | `4401` | Authentication required. |
+| `AccessDeniedException` | `4403` | Authentication passed, but permission denied. |
+| `NotFoundException` | `4404` | Route not found. |
+| `RateLimitException` | `4429` | Too many requests. |
 | `InternalServerErrorException` | `4500` | Generic server error. |
 | `BadGatewayException` | `4502` | Upstream error. |
 | `ServiceUnavailableException` | `4503` | Server overloaded or maintenance. |
@@ -441,5 +445,9 @@ this.$subscribePathNotifications((event) => {
   }
 });
 ```
+
+---
+
+> 🚀 **Ready to dive deeper?** Take the [Interactive Course](COURSE.md)!
 
 
