@@ -180,7 +180,8 @@ export class AuthGuard implements CanActivateConnect {
 
   canActivate(context: SocketContext) {
     const token = this.getToken(context.request);
-    // Simple verification: token must be a number
+    const token = this.getToken(context.request);
+    // Simple verification: in this example, the token IS the userId
     if (!token || isNaN(+token)) return false;
 
     // Attach user data to context
@@ -268,8 +269,17 @@ export class ChatsController extends Controller
 
   private async createChat(membersIds: number[]) {
     const newChat = Store.addChat(membersIds);
-    // Broadcast to relevant users using $forEachContext or internal notifications
-    // (See full example for broadcasting logic)
+    
+    // Optimization: Broadcast ONLY to relevant users connected to this controller
+    this.$forEachContext((ctx) => {
+      // Check if this connected user is a member of the new chat
+      if (membersIds.includes(ctx.payload.userId)) {
+        this.$send(ctx, {
+          event: 'new_chat',
+          payload: { newChat }
+        });
+      }
+    });
   }
 }
 ```
@@ -288,7 +298,7 @@ export const routes: Route[] = [
   {
     path: '/chats',
     controller: ChatsController,
-    connectGuards: [new AuthGuard()],
+    connectGuards: [], // AuthGuard is global!
     requestMessagePipes: [new BufferToStringPipe(), new JsonParsePipe()],
     responseMessagePipes: [new JsonStringifyPipe()],
   },
@@ -395,7 +405,7 @@ export const routes: Route[] = [
   {
     path: '/chats/:id', // parameterized path
     controller: ChatController,
-    connectGuards: [new AuthGuard()],
+    connectGuards: [], // AuthGuard is global!
     requestMessagePipes: [new BufferToStringPipe(), new JsonParsePipe()],
     responseMessagePipes: [new JsonStringifyPipe()],
   }
