@@ -1,5 +1,7 @@
 export interface RateLimitConfig {
-  maxRequests?: number;
-  window?: number;
+  maxRequests?: {
+    counter: number;
+    window: number;
+  }
   maxConnections?: number;
 }

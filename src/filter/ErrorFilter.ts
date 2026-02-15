@@ -11,6 +11,8 @@ export class ErrorFilter {
       } catch (e) {
         console.error(e);
       }
+
+      return;
     }
     
     console.error(err);

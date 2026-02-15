@@ -1,187 +1,421 @@
 # Socketeer 🚀
 
-**Socketeer** to nowoczesny, ustrukturyzowany framework WebSocket dla Node.js.
+> **Modern, structured WebSocket framework for Node.js**
 
-Framework stawia na **jawną architekturę** ("explicit over implicit") i całkowity brak dekoratorów. Zamiast magii, otrzymujesz czytelny podział odpowiedzialności:
-1.  **Controller**: Czysta logika biznesowa (Singleton).
-2.  **Route**: Konfiguracja, walidacja (Pipes) i bezpieczeństwo (Guards).
-3.  **Server**: Infrastruktura i zarządzanie połączeniami.
+Socketeer is a TypeScript-first framework designed for building scalable and maintainable WebSocket applications. It enforces an **explicit architecture** without the magic of decorators, giving you full control over your application's flow.
+
+## Philosophy
+
+- **Explicit over Implicit**: No hidden magic. Everything is defined in your route configuration.
+- **No Decorators**: Pure TypeScript classes and objects. easier to debug and test.
+- **Singleton Controllers**: Controllers are singletons per route, perfect for stateful logic (like chat rooms).
+- **Lifecycle Hooks**: Granular control over every stage of a connection's life.
+
+## Key Features
+
+- 🏗️ **Structured Architecture**: Clear separation of concerns (Server, Routes, Controllers).
+- 🛠️ **Pipes**: Transform and validate data before it reaches your controller.
+- 🛡️ **Guards**: Secure your endpoints with authentication logic.
+- 🚦 **Exception Filters**: Centralized error handling.
+- 🔌 **Context Awareness**: Access `ws` instance, request data, and custom session state easily.
 
 ---
 
-## 🚀 Szybki Start
+## Get Started
 
-Poniżej znajdziesz kompletny przykład podzielony na logiczne części.
+This example demonstrates how to create a simple chat endpoint with parameter support.
 
-### Krok 1: Kontroler (Logic)
-Kontroler to klasa dziedzicząca po `Controller`. Implementuje metody cyklu życia (np. `$onSocketMessage`), które są chronione (`protected`), aby nie wyciekały na zewnątrz API.
+> 🎓 **Want a step-by-step guide?** Check out the [Interactive Course](COURSE.md)!
 
-Metoda `$send` służy do wysyłania odpowiedzi do konkretnego klienta (`SocketContext`).
+### 1. Installation
+
+```bash
+npm install socketeer
+```
+
+### 2. Define a Controller
+
+The controller handles the business logic. It implements lifecycle interfaces to react to events.
 
 ```typescript
-import { Controller, SocketContext } from 'socketeer';
+// src/EndpointController.ts
+import { 
+  Controller, 
+  OnSocketInit, 
+  OnSocketConnect, 
+  OnSocketMessage, 
+  OnSocketError, 
+  OnSocketClose, 
+  OnSocketDestroy 
+} from 'socketeer';
+import { SocketContext } from 'socketeer';
 
-export class ChatController extends Controller {
-  // Stan jest zachowany między połączeniami (Singleton per Route)
-  private messages: string[] = [];
+export class EndpointController extends Controller
+  implements OnSocketInit, OnSocketConnect, OnSocketMessage, OnSocketError, OnSocketClose, OnSocketDestroy {
 
-  // Wywoływane, gdy klient wyśle wiadomość
-  protected $onSocketMessage(message: { text: string }, context: SocketContext) {
-    this.messages.push(message.text);
-    console.log(`Nowa wiadomość od klienta: ${message.text}`);
-
-    // Odesłanie potwierdzenia do nadawcy
-    this.$send(context, { status: 'OK', echo: message.text });
-    
-    // Broadcast do wszystkich w tej ścieżce
-    this.$sendBroadcastMessage({ event: 'new_message', content: message.text });
+  // Called ONCE when the first client connects to this route
+  async $onSocketInit() {
+    const params = this.$getParams();
+    console.log('Controller initialized with params:', params); // e.g., { id: '1' }
   }
 
-  // Wywoływane przy nowym połączeniu
-  protected $onSocketConnect(context: SocketContext) {
-    // Możemy np. wysłać powitanie
-    this.$send(context, { event: 'welcome', history: this.messages });
+  // Called for EVERY new connection
+  async $onSocketConnect(context: SocketContext<any>) {
+    console.log('New connection:', context.id);
+    
+    // Broadcast to all connected clients in this controller
+    this.$forEachContext((ctx) => {
+      console.log('Active client:', ctx.id);
+    });
+  }
+
+  // Handle incoming messages
+  async $onSocketMessage(message: unknown, context: SocketContext<any>) {
+    console.log('Received:', message);
+    
+    // Send response to sender
+    this.$send(context, { status: 'ok' }); 
+    
+    // Broadcast to everyone else
+    this.$sendBroadcastMessage(message); 
+  }
+
+  async $onSocketError(err: Error, context: SocketContext<unknown>) {
+    console.error('Socket error:', err);
+  }
+
+  async $onSocketClose(code: number, reason: string | Buffer, context: SocketContext<unknown>) {
+    console.log('Client disconnected:', code);
+  }
+
+  // Called when the LAST client disconnects
+  async $onSocketDestroy() {
+    console.log('Controller destroyed - no more active clients');
   }
 }
 ```
 
-### Krok 2: Routing (Configuration)
-To tutaj spinamy logikę z walidacją i bezpieczeństwem. Nie brudzimy kontrolera dekoratorami `@UseGuards` czy `@UsePipes`. Wszystko jest w definicji trasy.
+### 3. Configure Routes
+
+The route definition links a URL path to a controller and configures pipes.
 
 ```typescript
-import { Route } from 'socketeer';
-// Zakładamy, że masz ZodValidationPipe (np. z przykładów advanced)
-import { ZodValidationPipe } from './pipes/ZodValidationPipe'; 
-import { z } from 'zod';
+// src/routes.ts
+import { Route, BufferToStringPipe, JsonParsePipe, JsonStringifyPipe } from 'socketeer';
+import { EndpointController } from './EndpointController';
 
-const ChatRoute: Route = {
-  path: '/chat',
-  controller: ChatController,
-  
-  // Walidacja wiadomości przychodzących
-  requestMessagePipes: [
-    new BufferToStringPipe(),
-    new JsonParsePipe(),
-    new ZodValidationPipe(z.object({ text: z.string().min(1) }))
-  ],
-
-  // Limit: max 5 wiadomości na sekundę od klienta
-  rateLimit: {
-    maxRequests: 5,
-    window: 1000
+export const routes: Route[] = [
+  {
+    path: '/chat/:id', // Supports path parameters
+    controller: EndpointController,
+    // Pipes to process incoming messages (Buffer -> String -> JSON)
+    requestMessagePipes: [
+      new BufferToStringPipe(),
+      new JsonParsePipe(),
+    ],
+    // Pipes to process outgoing messages (Object -> JSON String)
+    responseMessagePipes: [
+      new JsonStringifyPipe(),
+    ],
   }
-};
+];
 ```
 
-### Krok 3: Serwer (Infrastructure)
-Inicjalizacja serwera jest prosta i przyjmuje listę tras.
+### 4. Start the Server
+
+Initialize the `Socketeer` instance with your configuration.
 
 ```typescript
+// src/main.ts
 import { Socketeer } from 'socketeer';
+import { routes } from './routes';
 
-new Socketeer({
-  port: 8080,
-  routes: [
-    ChatRoute
-  ],
+const server = new Socketeer({
+  port: 3200,
+  routes,
   onInit: () => {
-    console.log('Serwer Socketeer wystartował na porcie 8080 🚀');
+    console.log('==============================');
+    console.log('Socketeer running on port 3200');
+    console.log('==============================');
   }
 });
 ```
 
 ---
 
-## 📖 Dokumentacja
+## Documentation
 
-### 🎮 Cykl życia Kontrolera (Lifecycle)
-Kontroler posiada zestaw metod (hooks), które możesz nadpisać, aby reagować na zdarzenia. Wszystkie metody są **opcjonalne**.
-
-| Metoda | Opis |
-| :--- | :--- |
-| `$onSocketInit()` | Wywoływana raz, podczas inicjalizacji kontrolera (start serwera). |
-| `$onSocketConnect(ctx)` | Wywoływana przy każdym nowym połączeniu klienta. |
-| `$onSocketMessage(msg, ctx)` | Wywoływana po otrzymaniu wiadomości (i przetworzeniu przez Pipes). |
-| `$onSocketClose(code, reason, ctx)` | Wywoływana po rozłączeniu klienta. |
-| `$onSocketError(err, ctx)` | Wywoływana przy błędzie połączenia/socketu. |
-| `$onSocketDestroy()` | Wywoływana przy niszczeniu kontrolera (np. zamknięcie serwera). |
-
-*`ctx` to obiekt `SocketContext`.*
-
-### 📦 SocketContext i Parametry
-Każda metoda otrzymuje kontekst połączenia, dający dostęp do:
-*   `context.socket`: Natywny obiekt WebSocket.
-*   `context.request`: Obiekt `IncomingMessage` (Node.js) – dostęp do nagłówków, IP, URL itp.
-
-Dostęp do parametrów ścieżki i query string wewnątrz kontrolera:
-```typescript
-const params = this.$getParams(); // np. { roomId: "123" }
-const query = this.$getQueryParams(); // np. { sort: "desc" }
-```
-
-### 📡 System Powiadomień (Notifier)
-Kontrolery w Socketeer są odizolowane. Aby się komunikowały (np. Moduł A chce wysłać coś do klientów Modułu B), używamy wbudowanego `notifiera`.
-
-*   `this.$notifyPath(path, data)`: Wyślij zdarzenie do innej ścieżki.
-*   `this.$subscribePathNotifications(callback)`: Nasłuchuj na zdarzenia skierowane do Twojej ścieżki.
+- [Server (Socketeer)](#server-socketeer)
+- [Routes](#routes)
+- [Controllers](#controllers)
+- [Guards](#guards)
+- [Pipes](#pipes)
+- [Exception Filters](#exception-filters)
+- [Context (SocketContext)](#context-socketcontext)
+- [Exceptions & Response Codes](#exceptions--response-codes)
+- [Notifications](#notifications)
 
 ---
 
-## ⚡ Przykłady Zaawansowane
+## Server (Socketeer)
 
-### 1. Autentyfikacja (Guard)
-Guard implementuje interfejs `CanActivateConnect`. Jeśli zwróci `false`, połączenie jest odrzucane (kod 4403).
+The `Socketeer` class is the main entry point of the application. It initializes the WebSocket server and manages the routing of incoming connections.
+
+### Configuration (`SocketeerConfig`)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `port` | `number` | The port on which the WebSocket server will listen. |
+| `routes` | `Route[]` | An array of route definitions. |
+| `onInit` | `() => void` | Lifecycle hook called when the server successfully starts. |
+| `onConnect` | `() => void` | Lifecycle hook called when a new client connects (global). |
+| `connectGuards` | `CanActivateConnect[]` | Global guards that run for **every** connection attempt. |
+| `prefixPath` | `string` | Optional prefix for all routes (e.g., `/ws`). |
+| `errorFilter` | `ErrorFilter` | Custom global error handler. |
+| `rateLimit` | `RateLimitConfig` | Global rate limiting configuration. |
+
+### Helper Methods
+
+- **`notifyPath(path: string, data: T)`**: Sends an internal event to a specific path. This is useful for inter-controller communication without a direct reference to the controller instance.
+
+---
+
+## Routes
+
+Routes define how URL paths map to Controllers. Socketeer supports parameterized paths, similar to Express or NestJS.
+
+### Configuration (`Route`)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `path` | `string` | The URL path (e.g., `/chat`, `/room/:roomId`). |
+| `controller` | `Controller Class` | The class definition of the controller to handle this route. |
+| `connectGuards` | `CanActivateConnect[]` | Guards specific to this route. |
+| `requestMessagePipes` | `PipeTransform[]` | Pipes that process incoming messages **before** they reach the controller. |
+| `responseMessagePipes` | `PipeTransform[]` | Pipes that process outgoing messages **before** they are sent to the client. |
+| `rateLimit` | `RateLimitConfig` | Rate limiting specific to this route (overrides global). |
+
+### Path Parameters
+
+Parameters are defined with a colon `:`. They are accessible inside the controller via `this.$getParams()`.
+
+```typescript
+{
+  path: '/channel/:channelId/user/:userId',
+  controller: ChannelController
+}
+```
+
+In the controller:
+```typescript
+const { channelId, userId } = this.$getParams();
+```
+
+---
+
+## Controllers (Business Logic)
+
+Controllers are the heart of your application. They handle incoming messages, manage connection state, and execute business logic.
+
+### Lifecycle Hooks
+
+Socketeer controllers have a rich lifecycle. Implementing these interfaces allows you to tap into key events.
+
+| Hook | Interface | Description |
+|------|-----------|-------------|
+| `$onSocketInit` | `OnSocketInit` | Called **once** when the first client connects to this route. Use for setting up shared resources. |
+| `$onSocketConnect` | `OnSocketConnect` | Called for **each** new connection. |
+| `$onSocketMessage` | `OnSocketMessage` | Called when a client sends a message. |
+| `$onSocketError` | `OnSocketError` | Called on socket errors. |
+| `$onSocketClose` | `OnSocketClose` | Called when a client disconnects. |
+| `$onSocketDestroy` | `OnSocketDestroy` | Called when the **last** client disconnects. Use for cleanup. |
+
+### API Methods
+
+The `Controller` base class provides several protected methods to manage your application.
+
+- **`this.$getParams()`**: Returns route parameters (e.g., `:id`).
+- **`this.$getQueryParams()`**: Returns URL query parameters.
+- **`this.$send(context, data)`**: Sends a transformed message to a specific client.
+- **`this.$sendBroadcastMessage(data)`**: Sends a message to **all** clients currently connected to this controller instance.
+- **`this.$forEachContext(callback)`**: Iterates over all connected clients.
+- **`this.$findContext(callback)`**: Finds a specific client context.
+- **`this.$notifyPath(path, data)`**: Sends data to another controller via the internal event bus.
+- **`this.$subscribePathNotifications(callback)`**: Listens for internal events.
+
+---
+
+## Guards (Authentication)
+
+Guards are used to determine whether a connection should be allowed. They are executed **before** the connection is fully established and before the controller's `$onSocketConnect` hook.
+
+### Implementing a Guard
+
+A guard must implement the `CanActivateConnect` interface.
 
 ```typescript
 import { CanActivateConnect, SocketContext } from 'socketeer';
 
 export class AuthGuard implements CanActivateConnect {
-  async canActivate(context: SocketContext): Promise<boolean> {
-    const token = context.request.headers['authorization'];
-    // Tutaj weryfikacja tokena (np. baza danych, JWT)
-    return token === 'secret_token'; 
+  
+  canActivate(context: SocketContext): boolean {
+    const token = context.queryParams['token'];
+    
+    if (validateToken(token)) {
+      return true;
+    }
+    
+    return false; // Connection will be rejected with AccessDeniedException
+  }
+}
+```
+
+### Global vs Route Guards
+
+- **Global Guards**: Defined in `SocketeerConfig.connectGuards`. Run for every connection.
+- **Route Guards**: Defined in `Route.connectGuards`. Run only for that specific route.
+
+---
+
+## Pipes (Transformation & Validation)
+
+Pipes transform input data to a desired output. They can also be used for validation, throwing an exception if the data is incorrect.
+
+### Built-in Pipes
+
+Socketeer comes with several built-in pipes:
+
+| Pipe | Description |
+|------|-------------|
+| `BufferToStringPipe` | Converts incoming `Buffer` to `string`. |
+| `JsonParsePipe` | Parses a JSON string into an object. |
+| `JsonStringifyPipe` | Stringifies an object into a JSON string. |
+
+### Creating a Custom Pipe
+
+Implement the `PipeTransform` interface.
+
+```typescript
+import { PipeTransform, SocketContext } from 'socketeer';
+
+export class ToUpperCasePipe implements PipeTransform {
+  transform(value: any, context: SocketContext): string {
+    if (typeof value !== 'string') {
+      throw new Error('Expected string!');
+    }
+    return value.toUpperCase();
+  }
+}
+```
+
+### Usage
+
+Pipes can be applied to:
+- **Incoming Messages** (`requestMessagePipes`): Transform what the client sends before it reaches `$onSocketMessage`.
+- **Outgoing Messages** (`responseMessagePipes`): Transform what you send via `$send` before it reaches the client.
+
+---
+
+## Exception Filters
+
+Exception filters handle errors thrown during the application lifecycle (in guards, pipes, or controllers).
+
+### Default Behavior
+
+By default, Socketeer uses a built-in `ErrorFilter` that:
+1.  Checks if the error is an instance of `SocketeerException`.
+2.  If yes, it **closes the connection** with the exception's `code` and `message`.
+3.  If no, it logs the error to the console (and keeps the connection open, usually).
+
+### Custom Exception Filter
+
+You can provide a custom filter in `SocketeerConfig`.
+
+```typescript
+import { ErrorFilter } from 'socketeer';
+import * as WebSocket from 'ws';
+
+export class MyErrorFilter extends ErrorFilter {
+  handleError(err: unknown, ws?: WebSocket) {
+    // Custom logging logic
+    console.error('Custom Error Handler:', err);
+    
+    // Call default behavior if needed
+    super.handleError(err, ws);
   }
 }
 
-// Użycie w Routingu:
-// connectGuards: [new AuthGuard()]
-```
+---
 
-### 2. Komunikacja Kontrolerów
-Scenariusz: Nowa wiadomość na czacie (`/chat`) ma wysłać powiadomienie do panelu admina (`/admin`).
+## Context (SocketContext)
 
-**ChatController:**
-```typescript
-protected $onSocketMessage(msg: any, ctx: SocketContext) {
-  // ... logika czatu ...
-  this.$notifyPath('/admin', { event: 'ALERT', msg: 'Ktoś pisze!' });
-}
-```
+The `SocketContext` wrapper provides access to the underlying WebSocket connection and request data.
 
-**AdminController:**
-```typescript
-protected $onSocketInit() {
-  this.$subscribePathNotifications((data: any) => {
-    if (data.event === 'ALERT') {
-      this.$sendBroadcastMessage(data); // Prześlij do adminów
-    }
-  });
-}
-```
-
-### 3. Rate Limiting (Ochrona)
-Możesz chronić serwer na dwóch poziomach:
-1.  **Globalnie** (w `SocketeerConfig`): Limituje całkowitą liczbę połączeń (`maxConnections`).
-2.  **Per Route** (w `Route`): Limituje częstotliwość wiadomości od jednego klienta.
+| Property | Type | Description |
+|----------|------|-------------|
+| `socket` | `WebSocket` | The native `ws` WebSocket instance. |
+| `request` | `IncomingMessage` | The initial HTTP request that established the connection. |
+| `payload` | `T` | A generic property to store session data (e.g., user profile). |
 
 ```typescript
-rateLimit: {
-  maxRequests: 10,   // 10 wiadomości...
-  window: 5000       // ...na 5 sekund
-}
+// Storing data in context during connection
+context.payload = { userId: 123, role: 'admin' };
+
+// Accessing it later
+const user = context.payload;
 ```
 
 ---
 
-## 📄 Licencja
-Projekt objęty licencją **MIT**.
+## Exceptions & Response Codes
+
+Socketeer uses standard exception classes that map to specific close codes.
+
+| Exception | Close Code | Description |
+|-----------|------------|-------------|
+| `BadRequestException` | `4000` | Invalid data sent by client. |
+| `UnauthorizedException` | `4001` | Authentication required. |
+| `AccessDeniedException` | `4003` | Authentication passed, but permission denied. |
+| `NotFoundException` | `4004` | Route not found. |
+| `RateLimitException` | `4029` | Too many requests. |
+| `InternalServerErrorException` | `4500` | Generic server error. |
+| `BadGatewayException` | `4502` | Upstream error. |
+| `ServiceUnavailableException` | `4503` | Server overloaded or maintenance. |
+
+You can throw these exceptions anywhere in your application (Guards, Pipes, Controllers).
+
+```typescript
+throw new NotFoundException('Chat room does not exist');
+```
+
+---
+
+## Notifications (Internal Event Bus)
+
+The `Notifier` system allows controllers to communicate with each other without direct coupling. This is useful for system-wide events like "User X came online" or "System maintenance starting".
+
+### Publishing an Event
+
+From a controller:
+```typescript
+this.$notifyPath('/system/alerts', { type: 'maintenance', time: '10m' });
+```
+
+From the server instance:
+```typescript
+socketeer.notifyPath('/chat/general', { type: 'announcement', text: 'Hello!' });
+```
+
+### Subscribing to Events
+
+In a controller, you can listen for events targeting its path.
+
+```typescript
+this.$subscribePathNotifications((event) => {
+  if (event.type === 'maintenance') {
+     this.$sendBroadcastMessage({ systemParam: 'shutdown' });
+  }
+});
+```
+```
+

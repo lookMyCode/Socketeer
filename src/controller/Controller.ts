@@ -1,5 +1,5 @@
 import { SOCKETEER_STATUSES } from "../constants";
-import { AccessDeniedException, RateLimitException } from "../exception";
+import { AccessDeniedException, RateLimitException, ServiceUnavailableException } from "../exception";
 import { ErrorFilter } from "../filter";
 import { CanActivateConnect } from "../guard";
 import { Notifier, NotifierCallback } from "../notifier";
@@ -12,7 +12,7 @@ import { ControllerConfig } from "./ControllerConfig";
 
 
 export abstract class Controller<T = unknown> {
-  private __onSocketDestroyCb = () => { };
+  private __onSocketDestroyCb = () => {};
   private __contexts: SocketContext<T>[] = [];
   private __connectGuards: CanActivateConnect[];
   private __requestMessagePipes: PipeTransform[];
@@ -23,16 +23,17 @@ export abstract class Controller<T = unknown> {
   private __pathNotifier: Notifier<unknown>;
   private __currentPath: string;
   private __rateLimiter: RateLimiter | undefined;
+  private __maxConnections: number | undefined;
 
   constructor(config: ControllerConfig) {
     const {
+      onSocketDestroyCb,
       connectGuards,
       requestMessagePipes,
       responseMessagePipes,
       params,
       queryParams,
       errorFilter,
-      onSocketDestroyCb,
       pathNotifier,
       currentPath,
       rateLimit,
@@ -51,6 +52,7 @@ export abstract class Controller<T = unknown> {
 
     if (rateLimit) {
       this.__rateLimiter = new RateLimiter(rateLimit);
+      this.__maxConnections = rateLimit.maxConnections;
     }
 
     if (this.$onSocketInit) {
@@ -80,12 +82,21 @@ export abstract class Controller<T = unknown> {
     return { ...this.__queryParams };
   }
 
-  protected $forEachContext(cb: (context: SocketContext<T>) => void): void {
+  protected $forEachContext(cb: (context: SocketContext<T>, idx?: number) => void): void {
     this.__contexts.forEach(cb);
   }
 
-  async __addSocket(context: SocketContext<T>) {
+  protected $findContext(cb: (context: SocketContext<T>, idx?: number) => void): SocketContext<T> | undefined {
+    return this.__contexts.find(cb);
+  }
+
+  // must be private, I know what I do...
+  private async __addSocket(context: SocketContext<T>) {
     try {
+      if (this.__maxConnections && this.__maxConnections <= this.__contexts.length) {
+        throw new ServiceUnavailableException();
+      }
+
       this.__contexts.push(context);
 
       await this.__addEventsListeners(context);
@@ -118,9 +129,13 @@ export abstract class Controller<T = unknown> {
 
   protected async $sendBroadcastMessage(msg: unknown) {
     try {
-      this.__contexts.forEach(async (ctx) => {
-        this.$send(ctx, msg);
+      const promises: Promise<void>[] = [];
+
+      this.__contexts.forEach(ctx => {
+        promises.push(this.$send(ctx, msg));
       });
+
+      await Promise.all(promises);
     } catch (err) {
       this.__errorFilter.handleError(err);
     }
@@ -132,8 +147,8 @@ export abstract class Controller<T = unknown> {
     ws.on('error', (err: Error) => {
       try {
         this.__onSocketError.call(this, err, context);
-      } catch (err) {
-        this.__errorFilter.handleError(err);
+      } catch (e) {
+        this.__errorFilter.handleError(e);
       }
     });
 
@@ -157,26 +172,18 @@ export abstract class Controller<T = unknown> {
   private async __onSocketConnect(context: SocketContext<T>) {
     try {
       const guards = this.__connectGuards || [];
+      let accessDenied = false;
 
-      // Guards check
-      try {
-        let accessDenied = false;
-
-        for (let i = 0, l = guards.length; i < l; i++) {
-          const guard = guards[i];
-          const canActivate = await guard.canActivate(context);
-          if (!canActivate) {
-            accessDenied = true;
-            break;
-          }
+      for (let i = 0, l = guards.length; i < l; i++) {
+        const guard = guards[i];
+        const canActivate = await guard.canActivate(context);
+        if (!canActivate) {
+          accessDenied = true;
+          break;
         }
-        if (accessDenied) {
-          throw new AccessDeniedException();
-        }
-      } catch (err: unknown) {
-        throw err;
       }
-
+      
+      if (accessDenied) throw new AccessDeniedException();
       if (this.$onSocketConnect) this.$onSocketConnect(context);
     } catch (err: unknown) {
       this.__errorFilter.handleError(err, context.socket);
@@ -202,27 +209,17 @@ export abstract class Controller<T = unknown> {
   }
 
   private async __onSocketMessage(message: any, context: SocketContext<T>) {
-    if (this.__rateLimiter) {
-      if (!this.__rateLimiter.check(context)) {
-        throw new RateLimitException();
-      }
-    }
-
-    let msg: any = message;
-    const pipes = this.__requestMessagePipes;
-
-    for (let i = 0, l = pipes.length; i < l; i++) {
-      const pipe = pipes[i];
-
-      try {
-        msg = await pipe.transform(msg, context);
-      } catch (err) {
-        this.__errorFilter.handleError(err, context.socket);
-        return;
-      }
-    }
-
     try {
+      if (this.__rateLimiter && !this.__rateLimiter.check(context)) throw new RateLimitException();
+
+      let msg: any = message;
+      const pipes = this.__requestMessagePipes;
+
+      for (let i = 0, l = pipes.length; i < l; i++) {
+        const pipe = pipes[i];
+        msg = await pipe.transform(msg, context);
+      }
+
       if (this.$onSocketMessage) await this.$onSocketMessage(msg, context);
     } catch (err) {
       this.__errorFilter.handleError(err, context.socket);
@@ -241,8 +238,8 @@ export abstract class Controller<T = unknown> {
 
   $onSocketInit?(): void | Promise<void>;
   $onSocketConnect?(context: SocketContext<T>): void | Promise<void>;
-  $onSocketClose?(code: number, reason: string | Buffer, context: SocketContext<T>): void | Promise<void>;
+  $onSocketClose?(code: number, reason: string | Buffer<ArrayBufferLike>, context: SocketContext<T>): void | Promise<void>;
   $onSocketError?(err: Error, context: SocketContext<T>): void | Promise<void>;
   $onSocketDestroy?(): void | Promise<void>;
-  $onSocketMessage?(message: any, context: SocketContext<T>): void | Promise<void>;
+  $onSocketMessage?(message: unknown, context: SocketContext<T>): void | Promise<void>;
 }
