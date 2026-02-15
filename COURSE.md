@@ -1,275 +1,557 @@
-# Socketeer Interactive Course 🎓
+# Socketeer Advanced Course 🎓
 
-Welcome to the Socketeer Interactive Course! This step-by-step guide will take you from a basic WebSocket server to a complex, scalable chat application with rooms and notifications.
+Welcome to the **Advanced Socketeer Course**! In this series, we will build a production-ready Chat Application with multiple rooms, authentication, real-time unread counters, and system notifications.
 
-## Table of Contents
+We will use the code from `src/example/advanced` as our reference.
 
-1. [Lesson 1: Hello World & Basic Chat](#lesson-1-hello-world--basic-chat)
-2. [Lesson 2: Dynamic Rooms](#lesson-2-dynamic-rooms)
-3. [Lesson 3: Unread Counter (Stateful Logic)](#lesson-3-unread-counter-stateful-logic)
-4. [Lesson 4: Security & Validation](#lesson-4-security--validation)
-5. [Lesson 5: System Events](#lesson-5-system-events)
+## 📚 Table of Contents
+
+1.  [Lesson 1: Foundation (Store & Server)](#lesson-1-foundation-store--server)
+2.  [Lesson 2: Security (Authentication)](#lesson-2-security-authentication)
+3.  [Lesson 3: Listing Dialogs](#lesson-3-listing-dialogs)
+4.  [Lesson 4: Real-time Chat Room](#lesson-4-real-time-chat-room)
+5.  [Lesson 5: System Notifications (Unread Counter)](#lesson-5-system-notifications-unread-counter)
+6.  [Lesson 6: Reliability (Errors & Rate Limiting)](#lesson-6-reliability-errors--rate-limiting)
 
 ---
 
-## Lesson 1: Hello World & Basic Chat
+## Lesson 1: Foundation (Store & Server)
 
-**Goal:** Create a simple server that echoes messages back to the client.
+**Goal**: Set up a mock database and initialize the Socketeer server.
 
-### Step 1: Initialize the Server
+### 1.1 The Mock Store
 
-Create a file `main.ts` and initialize Socketeer.
+Since we don't have a real database, we'll create an in-memory `Store`. This class simulates database operations for Users, Chats, and Messages.
 
-```typescript
-// src/main.ts
-import { Socketeer } from 'socketeer';
-
-const server = new Socketeer({
-  port: 3000,
-  routes: [], // We'll add routes soon
-  onInit: () => console.log('Server started on port 3000'),
-});
-```
-
-### Step 2: Create a Controller
-
-Create `ChatController.ts`. This class will handle our messages.
+Create `src/Store.ts`:
 
 ```typescript
-// src/ChatController.ts
-import { Controller, OnSocketMessage, SocketContext } from 'socketeer';
+// src/Store.ts
+import { NotFoundException } from "socketeer";
 
-export class ChatController extends Controller implements OnSocketMessage {
-  
-  async $onSocketMessage(message: unknown, context: SocketContext) {
-    console.log('Received:', message);
-    
-    // Echo the message back to the sender
-    this.$send(context, { echo: message });
-  }
+export interface Message {
+  id: number;
+  content: string;
+  readBy: number[];
 }
-```
 
-### Step 3: Register the Route
+export interface User {
+  id: number,
+  name: string;
+}
 
-Go back to `main.ts` and register the controller.
+export interface Chat {
+  id: number;
+  messages: Message[];
+  membersIds: number[];
+}
 
-```typescript
-// src/main.ts
-import { ChatController } from './ChatController';
+export interface ChatWithMembers {
+  id: number;
+  messages: Message[];
+  members: User[];
+}
 
-const server = new Socketeer({
-  port: 3000,
-  routes: [
+export class Store {
+  private static users: User[] = [
+    { id: 1, name: 'Adam Smith' },
+    { id: 2, name: 'Jack Smile' },
+    { id: 3, name: 'Harry Jey' },
+  ];
+
+  private static chats: Chat[] = [
     {
-      path: '/chat',
-      controller: ChatController
+      id: 1,
+      membersIds: [1, 2],
+      messages: [
+        { id: 1, content: 'Hello', readBy: [1, 2] },
+        { id: 2, content: 'Hi', readBy: [1] },
+      ],
     }
-  ],
-  onInit: () => console.log('Server started on port 3000'),
-});
+  ];
+
+  static getChats(): ChatWithMembers[] {
+    return this.chats.map(this.transformChat.bind(this));
+  }
+
+  static getChat(id: number): ChatWithMembers | null {
+    const chat = this.chats.find(c => c.id === id);
+    if (!chat) return null;
+    return this.transformChat(chat);
+  }
+
+  static addChat(membersIds: number[]): ChatWithMembers {
+    const chat = {
+      membersIds,
+      messages: [],
+      id: Date.now(),
+    }
+    this.chats.push(chat);
+    return this.transformChat(chat);
+  }
+
+  static addMessage({ chatId, content, userId }: { chatId: number, content: string, userId: number }) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat) throw new NotFoundException();
+
+    const message: Message = {
+      id: Date.now(),
+      content,
+      readBy: [userId],
+    }
+    chat.messages.unshift(message);
+    return message;
+  }
+
+  static markAsRead({ chatId, messageId, userId }: { chatId: number, messageId: number, userId: number }) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat) throw new NotFoundException('Chat not found');
+
+    const message = chat.messages.find(message => message.id === messageId);
+    if (!message) throw new NotFoundException('Message not found');
+    if (!message.readBy.includes(userId)) message.readBy.push(userId);
+  }
+
+  private static transformChat(chat: Chat): ChatWithMembers {
+    return {
+      id: chat.id,
+      messages: chat.messages,
+      members: chat.membersIds.map(memberId => this.users.find(user => user.id === memberId)!),
+    }
+  }
+}
 ```
 
-### Try it out!
+### 1.2 Basic Server Setup
 
-Run your server and connect with a WebSocket client (like Postman or a browser console) to `ws://localhost:3000/chat`. Send a message and watch the server echo it back!
+Now, let's create the entry point.
 
----
-
-## Lesson 2: Dynamic Rooms
-
-**Goal:** Create multiple chat rooms using path parameters.
-
-### Step 1: Update Route
-
-Change the path to accept a `:roomId` parameter.
+Create `src/main.ts`:
 
 ```typescript
 // src/main.ts
-routes: [
-  {
-    path: '/room/:roomId', // dynamic parameter
-    controller: ChatController
-  }
-]
+import { Socketeer } from "socketeer";
+
+const socketeer = new Socketeer({
+  port: 3200,
+  routes: [], // We will add routes later
+  onInit() {
+    console.log('Server running on port 3200');
+  },
+  onConnect() {
+    console.log('=== New connection ===');
+  },
+});
 ```
 
-### Step 2: Use Parameters in Controller
-
-Update `ChatController` to read the `roomId` and broadcast messages only to users in that room.
-
-Remember: **Controllers are singletons per route**. This means for specific `roomId=1`, we have ONE instance of `ChatController`. For `roomId=2`, we have ANOTHER instance. This makes "rooms" logic automatic!
-
-```typescript
-// src/ChatController.ts
-import { Controller, OnSocketInit, OnSocketConnect, OnSocketMessage, SocketContext } from 'socketeer';
-
-export class ChatController extends Controller implements OnSocketInit, OnSocketConnect, OnSocketMessage {
-  roomId: string;
-
-  async $onSocketInit() {
-    // This runs ONCE per room
-    this.roomId = this.$getParams().roomId;
-    console.log(`Room ${this.roomId} initialized!`);
-  }
-
-  async $onSocketConnect(context: SocketContext) {
-    console.log(`User connected to room ${this.roomId}`);
-  }
-  
-  async $onSocketMessage(message: unknown, context: SocketContext) {
-    // Broadcast to everyone in THIS room (controller instance)
-    // The framework handles isolation automatically!
-    this.$sendBroadcastMessage({
-      from: 'Anonymous', // Simplified for the example
-      content: message,
-      room: this.roomId
-    });
-  }
-}
-```
-
-Now, users in `/room/1` will NOT see messages from `/room/2`.
+Run your server! It won't do much yet, but it's alive.
 
 ---
 
-## Lesson 3: Unread Counter (Stateful Logic)
+## Lesson 2: Security (Authentication)
 
-**Goal:** Create a counter that increments when a new message is received.
+**Goal**: Identify users connecting to our WebSocket server.
 
-### Step 1: Create the Counter Controller
+### 2.1 Define Payload
 
-This controller will handle the unread count.
+We need a place to store the user ID in the connection context.
+
+Create `src/Payload.ts`:
 
 ```typescript
-// src/UnreadController.ts
-import { Controller, OnSocketConnect, SocketContext } from 'socketeer';
-
-export class UnreadController extends Controller implements OnSocketConnect {
-  $onSocketConnect(context: SocketContext) {
-    this.$send(context, { unread: 0 });
-  }
+// src/Payload.ts
+export interface Payload {
+  userId: number;
 }
 ```
 
-Add it to routes:
-```typescript
-{
-  path: '/user/:userId/unread',
-  controller: UnreadController
-}
-```
+### 2.2 Create AuthGuard
 
----
+The Guard will check for a `token` cookie. Explicitly type that the guard expects our `Payload`.
 
-## Lesson 4: Security & Validation
-
-**Goal:** Protect our chat and validte messages.
-
-### Step 1: Create a Guard
-
-We want to allow only users with a token.
+Create `src/AuthGuard.ts`:
 
 ```typescript
 // src/AuthGuard.ts
+import { IncomingMessage } from 'http';
 import { CanActivateConnect, SocketContext } from 'socketeer';
 
 export class AuthGuard implements CanActivateConnect {
-  canActivate(context: SocketContext): boolean {
-    const token = context.queryParams['token'];
-    return token === 'secret123';
-  }
-}
-```
 
-### Step 2: Apply the Guard
+  canActivate(context: SocketContext) {
+    const token = this.getToken(context.request);
+    // Simple verification: token must be a number
+    if (!token || isNaN(+token)) return false;
 
-In `main.ts`:
-```typescript
-routes: [
-  {
-    path: '/room/:roomId',
-    controller: ChatController,
-    connectGuards: [new AuthGuard()]
-  }
-]
-```
-
-### Step 3: Add Validation (Pipe)
-
-Ensure messages are not empty strings.
-
-```typescript
-// src/NotEmptyPipe.ts
-import { PipeTransform, SocketContext } from 'socketeer';
-
-export class NotEmptyPipe implements PipeTransform {
-  transform(value: any) {
-    if (!value || value.trim() === '') {
-      throw new Error('Message cannot be empty');
+    // Attach user data to context
+    context.payload = {
+      userId: +token,
     }
-    return value;
+    
+    return true;
+  }
+
+  private getToken(req: IncomingMessage) {
+    const cookies = req.headersDistinct.cookie;
+    if (!cookies) return null;
+
+    const tokenCookie = cookies.find(c => c.startsWith('token='));
+    if (!tokenCookie) return null;
+    return tokenCookie.split('token=')[1];
   }
 }
 ```
 
-Apply it in the route:
+### 2.3 Register Global Guard
+
+Update `src/main.ts` to enforce authentication for **all** connections.
+
 ```typescript
-{
-  path: '/room/:roomId',
-  controller: ChatController,
-  connectGuards: [new AuthGuard()],
-  requestMessagePipes: [new NotEmptyPipe()]
+import { AuthGuard } from "./AuthGuard";
+
+const socketeer = new Socketeer({
+  // ...
+  connectGuards: [
+    new AuthGuard(),
+  ],
+});
+```
+
+Now, clients must send a `Cookie: token=1` header to connect.
+
+---
+
+## Lesson 3: Listing Dialogs
+
+**Goal**: Allow users to see their list of chats.
+
+### 3.1 ChatsController
+
+This controller will handle the `/chats` endpoint. It sends the list of chats on connection and allows creating new chats.
+
+Create `src/ChatsController.ts`:
+
+```typescript
+// src/ChatsController.ts
+import { Controller, OnSocketConnect, OnSocketMessage } from "socketeer";
+import { SocketContext } from "socketeer";
+import { Payload } from "./Payload";
+import { Store } from "./Store";
+
+interface SocketMessage {
+  event: 'new_chat';
+  payload: { userId: number }
 }
+
+export class ChatsController extends Controller
+  implements OnSocketConnect<Payload>, OnSocketMessage<SocketMessage> {
+
+  async $onSocketConnect(context: SocketContext<Payload>) {
+    await this.sendChats(context);
+  }
+
+  async $onSocketMessage(message: SocketMessage, context: SocketContext<Payload>) {
+    if (message.event === 'new_chat') {
+       await this.createChat([context.payload.userId, message.payload.userId]);
+    }
+  }
+
+  private async sendChats(context: SocketContext<Payload>) {
+    const userId = context.payload.userId;
+    const chats = Store.getChats().filter(chat => chat.members.some(m => m.id === userId));
+
+    await this.$send(context, {
+      event: 'chats',
+      payload: { chats }
+    });
+  }
+
+  private async createChat(membersIds: number[]) {
+    const newChat = Store.addChat(membersIds);
+    // Broadcast to relevant users using $forEachContext or internal notifications
+    // (See full example for broadcasting logic)
+  }
+}
+```
+
+### 3.2 Register Route
+
+Create `src/routes.ts`:
+
+```typescript
+// src/routes.ts
+import { Route, BufferToStringPipe, JsonParsePipe, JsonStringifyPipe } from "socketeer";
+import { ChatsController } from "./ChatsController";
+import { AuthGuard } from "./AuthGuard";
+
+export const routes: Route[] = [
+  {
+    path: '/chats',
+    controller: ChatsController,
+    connectGuards: [new AuthGuard()],
+    requestMessagePipes: [new BufferToStringPipe(), new JsonParsePipe()],
+    responseMessagePipes: [new JsonStringifyPipe()],
+  },
+];
+```
+
+Update `main.ts` to use these routes.
+
+```typescript
+import { routes } from "./routes";
+
+const socketeer = new Socketeer({
+  // ...
+  routes,
+});
 ```
 
 ---
 
-## Lesson 5: System Events
+## Lesson 4: Real-time Chat Room
 
-**Goal:** Notify `UnreadController` when a message is sent in `ChatController`.
+**Goal**: enable messaging inside a specific chat room.
 
-### Step 1: Subscribe in UnreadController
+### 4.1 ChatController
 
-```typescript
-// src/UnreadController.ts
-export class UnreadController extends Controller {
-  // ...
-  async $onSocketInit() {
-    const { userId } = this.$getParams();
-        
-    // Listen for events targeting THIS user's unread path
-    this.$subscribePathNotifications((event) => {
-      if (event.type === 'NEW_MESSAGE') {
-         this.$sendBroadcastMessage({ event: 'unread_inc', roomId: event.roomId });
-      }
-    });
-  }
-}
-```
+This controller uses a parameter `:id` to identify the room.
 
-### Step 2: Publish in ChatController
+Create `src/ChatController.ts`:
 
 ```typescript
 // src/ChatController.ts
-export class ChatController extends Controller {
-  // ...
-  async $onSocketMessage(message: any, context: SocketContext) {
-    // ... logic to send message ...
-    
-    // Notify the unread controller for a specific user
-    // In a real app, you'd iterate over room participants
-    const recipientId = '123'; 
-    this.$notifyPath(`/user/${recipientId}/unread`, { 
-      type: 'NEW_MESSAGE', 
-      roomId: this.roomId 
+import { Controller, OnSocketConnect, OnSocketMessage } from "socketeer";
+import { AccessDeniedException, NotFoundException, BadRequestException } from "socketeer";
+import { SocketContext } from "socketeer";
+import { Payload } from "./Payload";
+import { Store } from "./Store";
+
+// ... Define interfaces for NewMessage / ReadMessage ...
+
+export class ChatController extends Controller implements OnSocketConnect<Payload>, OnSocketMessage {
+
+  async $onSocketConnect(context: SocketContext<Payload>) {
+    const userId = context.payload.userId;
+    const params = this.$getParams(); // Get :id from path
+    const chat = Store.getChat(+params.id);
+
+    if (!chat) throw new NotFoundException();
+    if (!chat.members.some(m => m.id === userId)) throw new AccessDeniedException();
+
+    this.$send(context, {
+      event: 'connect',
+      payload: { chat }
     });
+  }
+
+  async $onSocketMessage(message: any, context: SocketContext<Payload>) {
+    const userId = context.payload.userId;
+    
+    switch (message.event) {
+      case 'new_message':
+        await this.onNewMessage(message.payload.content, userId);
+        break;
+      case 'read_message':
+        await this.onReadMessage(message.payload.id, userId);
+        break;
+      default:
+        throw new BadRequestException();
+    }
+  }
+
+  private async onNewMessage(content: string, userId: number) {
+    const params = this.$getParams();
+    const newMessage = Store.addMessage({
+      chatId: +params.id,
+      userId,
+      content,
+    });
+
+    // Broadcast to everyone currently in THIS room
+    await this.$sendBroadcastMessage({
+      event: 'new_message',
+      payload: { newMessage }
+    });
+    
+    // We will add notifications in Lesson 5!
+  }
+    
+  private async onReadMessage(id: number, userId: number) {
+      // similar logic...
   }
 }
 ```
 
-Now your controllers are decoupled but communicating! 🎉
+### 4.2 Register Route
 
-### Conclusion
+Values in `path` starting with `:` are parameters.
 
-You've built a modular, secure, and reactive WebSocket application with Socketeer. Experience the power of explicit architecture!
+```typescript
+// src/routes.ts
+import { ChatController } from "./ChatController";
+
+export const routes: Route[] = [
+  // ...
+  {
+    path: '/chats/:id', // parameterized path
+    controller: ChatController,
+    connectGuards: [new AuthGuard()],
+    requestMessagePipes: [new BufferToStringPipe(), new JsonParsePipe()],
+    responseMessagePipes: [new JsonStringifyPipe()],
+  }
+];
+```
+
+---
+
+## Lesson 5: System Notifications (Unread Counter)
+
+**Goal**: Update the unread badge in real-time when a message arrives in *another* chat.
+
+### 5.1 UnreadCounterController
+
+This controller listens to system events using `$subscribePathNotifications`.
+
+Create `src/UnreadCounterController.ts`:
+
+```typescript
+// src/UnreadCounterController.ts
+import { Controller, OnSocketInit, OnSocketConnect } from "socketeer";
+import { SocketContext } from "socketeer";
+import { Payload } from "./Payload";
+import { Store } from "./Store";
+
+export class UnreadCounterController extends Controller
+  implements OnSocketInit, OnSocketConnect<Payload> {
+  
+  // Track connected users to send updates to them
+  private connectedUsers = new Map<number, SocketContext<Payload>>();
+
+  async $onSocketInit() {
+    // Listen for events targeting THIS controller/path
+    this.$subscribePathNotifications(async ({ userId }: { userId: number }) => {
+      const connectedUserCtx = this.connectedUsers.get(userId);
+      if (connectedUserCtx) {
+        await this.updateCounters(connectedUserCtx);
+      }
+    });
+  }
+
+  async $onSocketConnect(context: SocketContext<Payload>) {
+    this.connectedUsers.set(context.payload.userId, context);
+    await this.updateCounters(context);
+  }
+    
+  async $onSocketClose(code: number, reason: string, context: SocketContext<Payload>) {
+      this.connectedUsers.delete(context.payload.userId);
+  }
+
+  private async updateCounters(context: SocketContext<Payload>) {
+    const userId = context.payload.userId;
+    // Calculate unread count logic from Store...
+    const counter = 10; // Simplified
+    await this.$send(context, { counter });
+  }
+}
+```
+
+### 5.2 Triggering the Notification
+
+Go back to `ChatController.ts` and dispatch the event when a new message is sent.
+
+```typescript
+// src/ChatController.ts
+
+  private async onNewMessage(content: string, userId: number) {
+    // ... save message ...
+
+    // Notify other members to update their counters via the Internal Event Bus
+    const chat = Store.getChat(+params.id);
+    chat!.members
+      .filter(member => member.id !== userId)
+      .forEach(member => {
+          // Send event to '/chats/unread' path
+          this.$notifyPath('/chats/unread', { userId: member.id });
+      });
+  }
+```
+
+### 5.3 Register Route
+
+```typescript
+// src/routes.ts
+import { UnreadCounterController } from "./UnreadCounterController";
+
+export const routes: Route[] = [
+  // ...
+  {
+    path: '/chats/unread',
+    controller: UnreadCounterController,
+    connectGuards: [new AuthGuard()],
+    responseMessagePipes: [new JsonStringifyPipe()],
+  }
+];
+```
+
+---
+
+## Lesson 6: Reliability (Errors & Rate Limiting)
+
+**Goal**: Make the server robust.
+
+### 6.1 Custom Error Filter
+
+Handle exceptions gracefully.
+
+Create `src/CustomErrorFilter.ts`:
+
+```typescript
+// src/CustomErrorFilter.ts
+import * as WebSocket from 'ws';
+import { ErrorFilter, SocketeerException } from 'socketeer';
+
+export class CustomErrorFilter extends ErrorFilter {
+
+  public handleError(err: unknown, ws?: WebSocket) {
+    if (err instanceof SocketeerException && ws) {
+      if (ws.readyState === WebSocket.OPEN) {
+          ws.close(err.code, err.message);
+      }
+      return;
+    }
+    
+    console.error('Unhandled Error:', err);
+  }
+}
+```
+
+### 6.2 Rate Limiting
+
+Protect your server from spam.
+
+Update `src/main.ts`:
+
+```typescript
+import { CustomErrorFilter } from "./CustomErrorFilter";
+
+const socketeer = new Socketeer({
+  // ...
+  errorFilter: new CustomErrorFilter(),
+  rateLimit: {
+    maxConnections: 10, // Max 10 concurrent connections total
+    maxRequests: {
+      counter: 10,  // Max 10 messages
+      window: 1000, // per 1 second
+    },
+  },
+});
+```
+
+## 🎉 Conclusion
+
+You have built a fully functional Chat backend with Socketeer! You learned about:
+- **Architecture**: Explicit controllers and routes.
+- **Security**: Guards and Payloads.
+- **Data Flow**: Pipes for transformation.
+- **Communication**: Broadcasts and System Notifications.
+- **Resilience**: Error Handling and Rate Limiting.
