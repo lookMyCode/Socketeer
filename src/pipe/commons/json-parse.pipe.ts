@@ -1,13 +1,15 @@
 import { PipeTransform } from '../PipeTransform';
-import { SocketeerException } from '../../exception/SocketeerException';
+import { BadRequestException } from '../../exception/BadRequestException';
+
 
 export class JsonParsePipe implements PipeTransform {
+
   transform(value: any) {
     try {
       if (typeof value === 'object') return value;
       return JSON.parse(value);
     } catch (e) {
-      throw new SocketeerException('Invalid JSON', 400, false);
+      throw new BadRequestException('Invalid JSON');
     }
   }
 }

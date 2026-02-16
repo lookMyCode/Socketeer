@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
+import { SocketContext } from '../SocketContext';
 
 
-export interface OnSocketConnect {
-  $onSocketConnect: (ws: WebSocket) => void | Promise<void>;
+export interface OnSocketConnect<T=unknown> {
+  $onSocketConnect: (context: SocketContext<T>) => void | Promise<void>;
 }
