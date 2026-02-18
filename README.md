@@ -1,5 +1,8 @@
 # Socketeer 🚀
 
+> [!CAUTION]
+> **BETA VERSION**: Interfaces may change, and errors may occur. Use with caution.
+
 > **Modern, structured WebSocket framework for Node.js**
 
 [![Interactive Course](https://img.shields.io/badge/🎓-Interactive_Course-blueviolet?style=for-the-badge)](COURSE.md)
@@ -12,6 +15,11 @@ Socketeer is a TypeScript-first framework designed for building scalable and mai
 - **No Decorators**: Pure TypeScript classes and objects. easier to debug and test.
 - **Singleton Controllers**: Controllers are singletons per route, perfect for stateful logic (like chat rooms).
 - **Lifecycle Hooks**: Granular control over every stage of a connection's life.
+
+## Community & Support
+
+- **GitHub**: [Star us on GitHub!](https://github.com/lookMyCode/Socketeer)
+- **Issues**: [Report a bug or request a feature](https://github.com/lookMyCode/Socketeer/issues)
 
 ## Key Features
 
@@ -32,7 +40,7 @@ This example demonstrates how to create a simple chat endpoint with parameter su
 ### 1. Installation
 
 ```bash
-npm install socketeer
+npm install @dimski/socketeer
 ```
 
 ### 2. Define a Controller

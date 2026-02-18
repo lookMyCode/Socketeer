@@ -10,8 +10,8 @@ Create `src/ChatsController.ts`:
 
 ```typescript
 // src/ChatsController.ts
-import { Controller, OnSocketConnect, OnSocketMessage } from "socketeer";
-import { SocketContext } from "socketeer";
+import { Controller, OnSocketConnect, OnSocketMessage } from "@dimski/socketeer";
+import { SocketContext } from "@dimski/socketeer";
 import { Payload } from "./Payload";
 import { Store } from "./Store";
 

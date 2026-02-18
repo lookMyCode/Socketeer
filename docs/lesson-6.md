@@ -11,7 +11,7 @@ Create `src/CustomErrorFilter.ts`:
 ```typescript
 // src/CustomErrorFilter.ts
 import * as WebSocket from 'ws';
-import { ErrorFilter, SocketeerException } from 'socketeer';
+import { ErrorFilter, SocketeerException } from '@dimski/socketeer';
 
 export class CustomErrorFilter extends ErrorFilter {
 

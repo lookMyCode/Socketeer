@@ -10,8 +10,8 @@ Create `src/UnreadCounterController.ts`:
 
 ```typescript
 // src/UnreadCounterController.ts
-import { Controller, OnSocketInit, OnSocketConnect } from "socketeer";
-import { SocketContext } from "socketeer";
+import { Controller, OnSocketInit, OnSocketConnect } from "@dimski/socketeer";
+import { SocketContext } from "@dimski/socketeer";
 import { Payload } from "./Payload";
 import { Store } from "./Store";
 

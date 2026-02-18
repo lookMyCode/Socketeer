@@ -24,7 +24,7 @@ Create `src/AuthGuard.ts`:
 ```typescript
 // src/AuthGuard.ts
 import { IncomingMessage } from 'http';
-import { CanActivateConnect, SocketContext } from 'socketeer';
+import { CanActivateConnect, SocketContext } from '@dimski/socketeer';
 
 export class AuthGuard implements CanActivateConnect {
 

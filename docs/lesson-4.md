@@ -10,9 +10,9 @@ Create `src/ChatController.ts`:
 
 ```typescript
 // src/ChatController.ts
-import { Controller, OnSocketConnect, OnSocketMessage } from "socketeer";
-import { AccessDeniedException, NotFoundException, BadRequestException } from "socketeer";
-import { SocketContext } from "socketeer";
+import { Controller, OnSocketConnect, OnSocketMessage } from "@dimski/socketeer";
+import { AccessDeniedException, NotFoundException, BadRequestException } from "@dimski/socketeer";
+import { SocketContext } from "@dimski/socketeer";
 import { Payload } from "./Payload";
 import { Store } from "./Store";
 

@@ -10,7 +10,7 @@ Create `src/Store.ts`:
 
 ```typescript
 // src/Store.ts
-import { NotFoundException } from "socketeer";
+import { NotFoundException } from "@dimski/socketeer";
 
 export interface Message {
   id: number;
@@ -113,7 +113,7 @@ Create `src/main.ts`:
 
 ```typescript
 // src/main.ts
-import { Socketeer } from "socketeer";
+import { Socketeer } from "@dimski/socketeer";
 
 const socketeer = new Socketeer({
   port: 3200,
