@@ -57,8 +57,8 @@ import {
   OnSocketError, 
   OnSocketClose, 
   OnSocketDestroy 
-} from 'socketeer';
-import { SocketContext } from 'socketeer';
+} from '@dimski/socketeer';
+import { SocketContext } from '@dimski/socketeer';
 
 export class EndpointController extends Controller
   implements OnSocketInit, OnSocketConnect, OnSocketMessage, OnSocketError, OnSocketClose, OnSocketDestroy {
@@ -111,7 +111,7 @@ The route definition links a URL path to a controller and configures pipes.
 
 ```typescript
 // src/routes.ts
-import { Route, BufferToStringPipe, JsonParsePipe, JsonStringifyPipe } from 'socketeer';
+import { Route, BufferToStringPipe, JsonParsePipe, JsonStringifyPipe } from '@dimski/socketeer';
 import { EndpointController } from './EndpointController';
 
 export const routes: Route[] = [
@@ -137,7 +137,7 @@ Initialize the `Socketeer` instance with your configuration.
 
 ```typescript
 // src/main.ts
-import { Socketeer } from 'socketeer';
+import { Socketeer } from '@dimski/socketeer';
 import { routes } from './routes';
 
 const server = new Socketeer({
@@ -289,7 +289,7 @@ Guards are used to determine whether a connection should be allowed. They are ex
 A guard must implement the `CanActivateConnect` interface.
 
 ```typescript
-import { CanActivateConnect, SocketContext } from 'socketeer';
+import { CanActivateConnect, SocketContext } from '@dimski/socketeer';
 
 export class AuthGuard implements CanActivateConnect {
   
@@ -331,7 +331,7 @@ Socketeer comes with several built-in pipes:
 Implement the `PipeTransform` interface.
 
 ```typescript
-import { PipeTransform, SocketContext, BadRequestException } from 'socketeer';
+import { PipeTransform, SocketContext, BadRequestException } from '@dimski/socketeer';
 
 export class ToUpperCasePipe implements PipeTransform {
   transform(value: any, context: SocketContext): string {
@@ -367,7 +367,7 @@ By default, Socketeer uses a built-in `ErrorFilter` that:
 You can provide a custom filter in `SocketeerConfig`.
 
 ```typescript
-import { ErrorFilter } from 'socketeer';
+import { ErrorFilter } from '@dimski/socketeer';
 import * as WebSocket from 'ws';
 
 export class MyErrorFilter extends ErrorFilter {

@@ -66,7 +66,7 @@ Create `src/routes.ts`:
 
 ```typescript
 // src/routes.ts
-import { Route, BufferToStringPipe, JsonParsePipe, JsonStringifyPipe } from "socketeer";
+import { Route, BufferToStringPipe, JsonParsePipe, JsonStringifyPipe } from "@dimski/socketeer";
 import { ChatsController } from "./ChatsController";
 import { AuthGuard } from "./AuthGuard";
 
